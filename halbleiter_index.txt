@@ -1,58 +1,254 @@
-<!doctype html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dotierte Halbleiter – Simulation</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+// iPad/Safari-safe: ES5 + setInterval + Step-Mode
+var cv, ctx;
+var modeEl, dopEl, tempEl, speedEl;
+var dopOut, tempOut, speedOut;
+var eCountEl, hCountEl, dCountEl;
+var resetBtn, pauseBtn, stepBtn;
 
-<h2>Dotierte Halbleiter (iPad/Safari Safe)</h2>
-<p class="small">
-  Qualitative Simulation: Dotierung erhöht die Ladungsträgerdichte.
-  Loch = fehlendes Elektron (effektiver positiver Träger).
-</p>
+var GRID = { cols:14, rows:9, marginX:60, marginY:60, dx:50, dy:50 };
 
-<div class="row">
-  <div class="panel">
-    <label>Halbleitertyp</label>
-    <select id="mode">
-      <option value="intrinsic">intrinsisch</option>
-      <option value="n">n-dotiert</option>
-      <option value="p">p-dotiert</option>
-    </select>
+var lattice = [];
+var dopants = [];
+var electrons = [];
+var holes = [];
+var tick = 0;
 
-    <label>Dotierkonzentration</label>
-    <input id="dop" type="range" min="0" max="100" value="35">
-    <div class="kpi">c ≈ <span id="dopOut">35</span>/100</div>
+var running = true;
+var timer = null;
 
-    <label>Temperatur</label>
-    <input id="temp" type="range" min="0" max="100" value="55">
-    <div class="kpi">T ≈ <span id="tempOut">55</span>/100</div>
+function rndInt(a,b){ return Math.floor(a + Math.random()*(b-a+1)); }
+function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 
-    <label>Geschwindigkeit</label>
-    <input id="speed" type="range" min="1" max="60" value="25">
-    <div class="kpi">v ≈ <span id="speedOut">25</span></div>
+function calcParams(){
+  var c = dopEl.value/100;
+  var T = tempEl.value/100;
 
-    <button id="pauseBtn" type="button">Pause</button>
-    <button id="stepBtn" type="button">Nächster Schritt</button>
-    <button id="resetBtn" type="button">Neu starten</button>
+  var maxDop = Math.floor(lattice.length * 0.25);
+  var nDop = Math.floor(maxDop * c);
 
-    <hr>
-    <div class="kpi">
-      Elektronen: <span id="eCount">0</span><br>
-      Löcher: <span id="hCount">0</span><br>
-      Dotieratome: <span id="dCount">0</span>
-    </div>
-  </div>
+  var intrinsicPairs = Math.floor(2 + 28 * Math.pow(T, 2.2));
+  var ionP = clamp(0.05 + 0.90 * Math.pow(T, 1.6), 0.05, 0.98);
 
-  <div>
-    <canvas id="cv" width="820" height="520"></canvas>
-    <p class="small">Grau: Si-Gitter · Schwarz: Dotieratome · Blau: Elektronen · Rot: Löcher</p>
-  </div>
-</div>
+  return { c:c, T:T, nDop:nDop, intrinsicPairs:intrinsicPairs, ionP:ionP };
+}
 
-<script src="script.js"></script>
-</body>
-</html>
+function buildLattice(){
+  lattice = [];
+  for(var r=0;r<GRID.rows;r++){
+    for(var c=0;c<GRID.cols;c++){
+      var x = GRID.marginX + c*GRID.dx;
+      var y = GRID.marginY + r*GRID.dy;
+      lattice.push({x:x,y:y,idx:r*GRID.cols+c});
+    }
+  }
+}
+
+function chooseDopants(n){
+  dopants = [];
+  var used = {};
+  while(dopants.length < n && dopants.length < lattice.length){
+    var i = rndInt(0, lattice.length-1);
+    if(used[i]) continue;
+    used[i]=true;
+    dopants.push(lattice[i]);
+  }
+}
+
+function seedCarriers(){
+  electrons = [];
+  holes = [];
+  var p = calcParams();
+  var type = modeEl.value;
+
+  for(var k=0;k<p.intrinsicPairs;k++){
+    var posE = lattice[rndInt(0,lattice.length-1)];
+    var posH = lattice[rndInt(0,lattice.length-1)];
+    electrons.push({x:posE.x,y:posE.y,kind:"intrinsic"});
+    holes.push({x:posH.x,y:posH.y,kind:"intrinsic"});
+  }
+
+  if(type === "n"){
+    for(var i=0;i<dopants.length;i++){
+      if(Math.random() < p.ionP){
+        var d = dopants[i];
+        electrons.push({x:d.x,y:d.y,kind:"donor"});
+      }
+    }
+  } else if(type === "p"){
+    for(var j=0;j<dopants.length;j++){
+      if(Math.random() < p.ionP){
+        var a = dopants[j];
+        holes.push({x:a.x,y:a.y,kind:"acceptor"});
+      }
+    }
+  }
+
+  electrons = electrons.slice(0,120);
+  holes = holes.slice(0,120);
+}
+
+function nearestLattice(x,y){
+  var best = lattice[0], bd = 1e9;
+  for(var i=0;i<lattice.length;i++){
+    var p = lattice[i];
+    var dx = p.x-x, dy = p.y-y;
+    var d = dx*dx+dy*dy;
+    if(d<bd){ bd=d; best=p; }
+  }
+  return best;
+}
+
+function hopOnLattice(obj){
+  var best = nearestLattice(obj.x,obj.y);
+  var idx = best.idx;
+  var r = Math.floor(idx/GRID.cols), c = idx%GRID.cols;
+  var nb = [];
+  if(r>0) nb.push(lattice[(r-1)*GRID.cols+c]);
+  if(r<GRID.rows-1) nb.push(lattice[(r+1)*GRID.cols+c]);
+  if(c>0) nb.push(lattice[r*GRID.cols+(c-1)]);
+  if(c<GRID.cols-1) nb.push(lattice[r*GRID.cols+(c+1)]);
+  var to = nb[rndInt(0, nb.length-1)];
+  obj.x = to.x; obj.y = to.y;
+}
+
+function randomWalk(obj){
+  obj.x += rndInt(-2,2);
+  obj.y += rndInt(-2,2);
+  var best = nearestLattice(obj.x,obj.y);
+  obj.x += (best.x-obj.x)*0.12;
+  obj.y += (best.y-obj.y)*0.12;
+}
+
+function recombine(){
+  var maxDist2 = 10*10;
+  for(var i=electrons.length-1;i>=0;i--){
+    var e = electrons[i];
+    for(var j=holes.length-1;j>=0;j--){
+      var h = holes[j];
+      var dx = e.x-h.x, dy = e.y-h.y;
+      if(dx*dx+dy*dy < maxDist2){
+        electrons.splice(i,1);
+        holes.splice(j,1);
+        break;
+      }
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+
+  for(var i=0;i<lattice.length;i++){
+    var p = lattice[i];
+    ctx.strokeStyle="#999";
+    ctx.strokeRect(p.x-5,p.y-5,10,10);
+  }
+
+  for(var j=0;j<dopants.length;j++){
+    var d = dopants[j];
+    ctx.fillStyle="#000";
+    ctx.fillRect(d.x-4,d.y-4,8,8);
+  }
+
+  for(var k=0;k<electrons.length;k++){
+    var e = electrons[k];
+    ctx.fillStyle="#1565c0";
+    ctx.beginPath();
+    ctx.arc(e.x+12,e.y,4,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  for(var m=0;m<holes.length;m++){
+    var h = holes[m];
+    ctx.fillStyle="#c62828";
+    ctx.beginPath();
+    ctx.arc(h.x,h.y,4,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  eCountEl.textContent = electrons.length;
+  hCountEl.textContent = holes.length;
+  dCountEl.textContent = dopants.length;
+}
+
+function refreshOutputs(){
+  dopOut.textContent = dopEl.value;
+  tempOut.textContent = tempEl.value;
+  speedOut.textContent = speedEl.value;
+}
+
+function resetAll(){
+  tick = 0;
+  buildLattice();
+  var p = calcParams();
+  chooseDopants(p.nDop);
+  seedCarriers();
+  draw();
+}
+
+function stepOnce(){
+  var sp = parseInt(speedEl.value,10);
+  tick++;
+
+  for(var i=0;i<electrons.length;i++){
+    if(tick % Math.max(1, Math.floor(60/sp)) === 0) randomWalk(electrons[i]);
+  }
+  for(var j=0;j<holes.length;j++){
+    if(tick % Math.max(1, Math.floor(75/sp)) === 0) hopOnLattice(holes[j]);
+  }
+  if(tick % Math.max(1, Math.floor(80/sp)) === 0) recombine();
+
+  draw();
+}
+
+function loop(){
+  if(running) stepOnce();
+}
+
+window.onload = function(){
+  cv = document.getElementById("cv");
+  ctx = cv.getContext("2d");
+
+  modeEl = document.getElementById("mode");
+  dopEl = document.getElementById("dop");
+  tempEl = document.getElementById("temp");
+  speedEl = document.getElementById("speed");
+
+  dopOut = document.getElementById("dopOut");
+  tempOut = document.getElementById("tempOut");
+  speedOut = document.getElementById("speedOut");
+
+  eCountEl = document.getElementById("eCount");
+  hCountEl = document.getElementById("hCount");
+  dCountEl = document.getElementById("dCount");
+
+  resetBtn = document.getElementById("resetBtn");
+  pauseBtn = document.getElementById("pauseBtn");
+  stepBtn = document.getElementById("stepBtn");
+
+  function restart(){ refreshOutputs(); resetAll(); }
+
+  modeEl.addEventListener("change", restart);
+  dopEl.addEventListener("change", restart);
+  tempEl.addEventListener("change", restart);
+
+  dopEl.addEventListener("input", refreshOutputs);
+  tempEl.addEventListener("input", refreshOutputs);
+  speedEl.addEventListener("input", refreshOutputs);
+
+  resetBtn.addEventListener("click", restart);
+
+  pauseBtn.addEventListener("click", function(){
+    running = !running;
+    pauseBtn.textContent = running ? "Pause" : "Weiter";
+  });
+
+  stepBtn.addEventListener("click", function(){
+    if(!running) stepOnce();
+  });
+
+  refreshOutputs();
+  resetAll();
+
+  timer = setInterval(loop, 30);
+};
