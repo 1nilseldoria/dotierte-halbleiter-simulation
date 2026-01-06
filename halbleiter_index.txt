@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dotierte Halbleiter – Simulation</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2>Dotierte Halbleiter (iPad/Safari Safe)</h2>
+<p class="small">
+  Qualitative Simulation: Dotierung erhöht die Ladungsträgerdichte.
+  Loch = fehlendes Elektron (effektiver positiver Träger).
+</p>
+
+<div class="row">
+  <div class="panel">
+    <label>Halbleitertyp</label>
+    <select id="mode">
+      <option value="intrinsic">intrinsisch</option>
+      <option value="n">n-dotiert</option>
+      <option value="p">p-dotiert</option>
+    </select>
+
+    <label>Dotierkonzentration</label>
+    <input id="dop" type="range" min="0" max="100" value="35">
+    <div class="kpi">c ≈ <span id="dopOut">35</span>/100</div>
+
+    <label>Temperatur</label>
+    <input id="temp" type="range" min="0" max="100" value="55">
+    <div class="kpi">T ≈ <span id="tempOut">55</span>/100</div>
+
+    <label>Geschwindigkeit</label>
+    <input id="speed" type="range" min="1" max="60" value="25">
+    <div class="kpi">v ≈ <span id="speedOut">25</span></div>
+
+    <button id="pauseBtn" type="button">Pause</button>
+    <button id="stepBtn" type="button">Nächster Schritt</button>
+    <button id="resetBtn" type="button">Neu starten</button>
+
+    <hr>
+    <div class="kpi">
+      Elektronen: <span id="eCount">0</span><br>
+      Löcher: <span id="hCount">0</span><br>
+      Dotieratome: <span id="dCount">0</span>
+    </div>
+  </div>
+
+  <div>
+    <canvas id="cv" width="820" height="520"></canvas>
+    <p class="small">Grau: Si-Gitter · Schwarz: Dotieratome · Blau: Elektronen · Rot: Löcher</p>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
